@@ -58,8 +58,11 @@ flowchart LR
 ## Screenshots
 
 ![Menu bar](docs/screenshots/menubar.png)
+
 ![Text mode settings](docs/screenshots/textmode.png)
+
 ![Image mode settings](docs/screenshots/imagemode.png)
+
 ![Desktop overlay](docs/screenshots/desktopexample.png)
 
 ## Install
