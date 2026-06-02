@@ -57,12 +57,16 @@ flowchart LR
 
 ## Screenshots
 
+Menu Bar Options
 ![Menu bar](docs/screenshots/menubar.png)
 
+Settings Page: Text Mode
 ![Text mode settings](docs/screenshots/textmode.png)
 
+Settings Page: Image Mode
 ![Image mode settings](docs/screenshots/imagemode.png)
 
+Desktop Overlay Example
 ![Desktop overlay](docs/screenshots/desktopexample.png)
 
 ## Install
