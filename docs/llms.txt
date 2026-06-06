@@ -1,0 +1,19 @@
+# Airmark
+
+> Airmark is a macOS 13+ menu-bar app that adds a text or image watermark to one selected display without blocking keyboard, mouse, or menu-bar access.
+
+## Facts
+- Download: https://github.com/anujraja404/airmark/releases/latest
+- Develop: npm install && npm run tauri dev
+- Build: npm run tauri build
+- Stack: Tauri v2, Rust, React, TypeScript, Vite
+- Platform: macOS 13+
+- License: MIT
+- Privacy: local JSON settings, no background server process
+
+## Performance
+- No benchmark claims are made on the landing page.
+
+## Links
+- Repository: https://github.com/anujraja404/airmark
+- Author: Anuj Raja <anujrajaceo@gmail.com>

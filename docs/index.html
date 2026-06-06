@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Airmark is a macOS 13+ menu-bar app that watermarks one selected display without blocking keyboard, mouse, or menu-bar access.">
+  <meta name="theme-color" content="#0a0a0b">
+  <meta property="og:title" content="Airmark">
+  <meta property="og:description" content="Watermark one selected macOS display without getting in the way.">
+  <meta property="og:type" content="website">
+  <title>Airmark</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/site.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%230a0a0b'/%3E%3Cpath d='M11 27 20 7l9 20M15 20h10' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+</head>
+<body>
+  <div class="backdrop"></div>
+
+  <nav class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top">
+        <svg viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M11 27 20 7l9 20M15 20h10" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <b>Airmark</b>
+      </a>
+      <button class="nav-toggle" type="button" aria-label="Toggle navigation">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div class="nav-links">
+        <a class="lnk" href="#screens">Screens</a>
+        <a class="lnk" href="#diagrams">Diagrams</a>
+        <a class="lnk" href="#start">Start</a>
+        <a class="ghbtn" href="https://github.com/anujraja404/airmark" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49v-1.7c-2.78.62-3.37-1.37-3.37-1.37-.46-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.36 1.12 2.94.85.09-.66.35-1.12.63-1.38-2.22-.26-4.56-1.14-4.56-5.05 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05a9.4 9.4 0 0 1 5 0c1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.92-2.34 4.79-4.57 5.04.36.32.68.94.68 1.9v2.82c0 .27.18.6.69.49A10.26 10.26 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="wrap hero-grid">
+      <div class="reveal" style="min-width:0">
+        <p class="eyebrow">macOS menu-bar app</p>
+        <h1>Watermark<br>one display.<br><span class="dim">Stay out<br>of the way.</span></h1>
+        <p class="sub">Airmark adds a text or image watermark to one selected macOS display without blocking the keyboard, mouse, or menu bar.</p>
+        <div class="cmd-row">
+          <span class="pmt">$</span>
+          <span id="inst">open https://github.com/anujraja404/airmark/releases/latest</span>
+          <button type="button" class="copy cpy" data-target="#inst">copy</button>
+        </div>
+        <div class="actions">
+          <a class="btn btn-solid" href="https://github.com/anujraja404/airmark/releases/latest" target="_blank" rel="noopener">Download DMG</a>
+          <a class="btn btn-ghost" href="https://github.com/anujraja404/airmark" target="_blank" rel="noopener">View source</a>
+        </div>
+        <div class="tags">
+          <span class="tag">macOS 13+</span>
+          <span class="tag">Tauri v2</span>
+          <span class="tag">Rust + React</span>
+        </div>
+      </div>
+
+      <div class="reveal term" style="min-width:0">
+        <div class="term-bar"><i></i><i></i><i></i><span>Airmark.app</span></div>
+        <div class="term-body">
+<div class="l"><span class="c"># dockless, local, one selected display</span></div>
+<div class="l"><span class="w">$</span> npm install</div>
+<div class="l ok">dependencies ready</div>
+<div class="l"><span class="w">$</span> npm run tauri dev</div>
+<div class="l ok">tray app + settings UI</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section" style="padding-top:8px">
+    <div class="wrap reveal stats">
+      <div class="stat"><div class="v"><span data-count="13" data-decimals="0">0</span><small>+</small></div><div class="k">minimum macOS</div></div>
+      <div class="stat"><div class="v"><span data-count="2" data-decimals="0">0</span></div><div class="k">watermark modes</div></div>
+      <div class="stat"><div class="v"><span data-count="1" data-decimals="0">0</span></div><div class="k">selected display</div></div>
+      <div class="stat"><div class="v"><span data-count="0" data-decimals="0">0</span></div><div class="k">background server</div></div>
+      <div class="stat"><div class="v">JSON</div><div class="k">local settings</div></div>
+    </div>
+  </section>
+
+  <section class="section" id="screens" style="padding-top:8px">
+    <div class="wrap">
+      <h2 class="h-title reveal">Screens</h2>
+      <div class="reveal cards">
+        <div class="shot">
+          <img src="screenshots/textmode.png" alt="Airmark text watermark settings">
+        </div>
+        <div class="shot">
+          <img src="screenshots/imagemode.png" alt="Airmark image watermark settings">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="diagrams" style="padding-top:8px">
+    <div class="wrap">
+      <h2 class="h-title reveal">Diagrams</h2>
+      <div class="reveal tabs" role="tablist" aria-label="Diagram views">
+        <button type="button" class="tab-btn active" data-tab="a" role="tab" id="tab-a" aria-controls="panel-a" aria-selected="true">Architecture</button>
+        <button type="button" class="tab-btn" data-tab="b" role="tab" id="tab-b" aria-controls="panel-b" aria-selected="false" tabindex="-1">Watermark Flow</button>
+      </div>
+
+      <div class="tab-panel active" data-panel="a" id="panel-a" role="tabpanel" aria-labelledby="tab-a">
+        <div class="diagram-card">
+<pre class="mermaid">
+flowchart TB
+  Tray["Menu Bar Tray"] --> Rust["Rust / Tauri Core"]
+  Settings["Native Settings Window"] --> React["React + TypeScript UI"]
+  React --> Rust
+  Rust --> State["Persisted App State"]
+  Rust --> Shim["macOS Shim / AppKit bridge"]
+  Rust --> Overlay["Transparent Overlay Window"]
+  React --> Renderer["Overlay Renderer"]
+  Renderer --> Overlay
+  Login["Launch at Login"] --> Rust
+</pre>
+        </div>
+        <p class="diagram-cap">Rust owns the app shell, state, display selection, and macOS bridges. React renders settings and overlay content.</p>
+      </div>
+
+      <div class="tab-panel" data-panel="b" id="panel-b" role="tabpanel" aria-labelledby="tab-b" hidden>
+        <div class="diagram-card">
+<pre class="mermaid">
+flowchart TB
+  Open["Open Airmark"] --> Pick["Pick display"]
+  Pick --> Mode{"Watermark mode"}
+  Mode --> Text["Text + opacity + size + spacing"]
+  Mode --> Image["Drop, choose, or paste image"]
+  Text --> Save["Persist settings"]
+  Image --> Save
+  Save --> Overlay["Transparent overlay on selected display"]
+  Overlay --> Work["Keyboard, mouse, and menu bar stay usable"]
+</pre>
+        </div>
+        <p class="diagram-cap">The overlay is targeted to one display and remains non-blocking for normal desktop work.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:8px">
+    <div class="wrap reveal facts">
+      <div class="fact"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><div class="lab">Platform</div><h4>macOS utility</h4><p class="mono-list">menu bar · dockless</p></div>
+      <div class="fact"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></div><div class="lab">Core</div><h4>Rust shell</h4><p class="mono-list">Tauri · AppKit</p></div>
+      <div class="fact"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 17l6-6-6-6M12 19h8"/></svg></div><div class="lab">UI</div><h4>React settings</h4><p class="mono-list">TypeScript · Vite</p></div>
+      <div class="fact"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg></div><div class="lab">Modes</div><h4>Text or image</h4><p class="mono-list">opacity · spacing</p></div>
+      <div class="fact"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg></div><div class="lab">Privacy</div><h4>Local state</h4><p>Small JSON settings file. No background server.</p></div>
+      <div class="fact"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M20 6 9 17l-5-5"/></svg></div><div class="lab">Install</div><h4>DMG release</h4><p>Drag Airmark.app into Applications.</p></div>
+    </div>
+  </section>
+
+  <section class="section" id="start" style="padding-top:8px">
+    <div class="wrap" style="max-width:760px">
+      <h2 class="h-title reveal">Quick start</h2>
+      <div class="reveal code">
+        <button type="button" class="copy" data-target="#qs">copy</button>
+<pre id="qs"><span class="c"># 1 · download the latest release</span>
+open https://github.com/anujraja404/airmark/releases/latest
+
+<span class="c"># 2 · develop locally</span>
+npm install
+npm run tauri dev
+
+<span class="c"># 3 · build the macOS app</span>
+npm run tauri build</pre>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap foot">
+      <span>© 2026 · MIT</span>
+      <div class="author">
+        <span class="who">Built by Anuj Raja&nbsp;&nbsp;🇨🇦&nbsp;🇮🇳</span>
+        <a class="iconbtn" href="https://anujraja.com" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+          anujraja.com
+        </a>
+        <a class="iconbtn" href="mailto:anujrajaceo@gmail.com">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+          Email
+        </a>
+        <a class="iconbtn" href="https://github.com/anujraja404" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49v-1.7c-2.78.62-3.37-1.37-3.37-1.37-.46-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.36 1.12 2.94.85.09-.66.35-1.12.63-1.38-2.22-.26-4.56-1.14-4.56-5.05 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05a9.4 9.4 0 0 1 5 0c1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.92-2.34 4.79-4.57 5.04.36.32.68.94.68 1.9v2.82c0 .27.18.6.69.49A10.26 10.26 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module">
+    const panels = Array.from(document.querySelectorAll(".tab-panel"));
+    const btns = Array.from(document.querySelectorAll(".tab-btn"));
+    try {
+      const { default: mermaid } = await import("https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs");
+      mermaid.initialize({
+        startOnLoad: false, securityLevel: "strict", theme: "base",
+        fontFamily: "JetBrains Mono, ui-monospace, monospace",
+        flowchart: { curve: "basis", htmlLabels: true, padding: 14, useMaxWidth: true },
+        sequence: { mirrorActors: false, actorMargin: 42, useMaxWidth: true },
+        themeVariables: {
+          background: "transparent",
+          primaryColor: "#141416", primaryBorderColor: "#54545a", primaryTextColor: "#f4f4f5",
+          secondaryColor: "#1a1a1d", tertiaryColor: "#141416",
+          lineColor: "#8a8a90", textColor: "#f4f4f5",
+          clusterBkg: "rgba(255,255,255,0.02)", clusterBorder: "#3a3a3e", nodeBorder: "#54545a",
+          edgeLabelBackground: "#0a0a0b",
+          actorBkg: "#141416", actorBorder: "#6a6a70", actorTextColor: "#f4f4f5", actorLineColor: "#54545a",
+          signalColor: "#9b9ba1", signalTextColor: "#c7c7cc",
+          labelBoxBkgColor: "#141416", labelBoxBorderColor: "#3a3a3e", labelTextColor: "#f4f4f5",
+          loopTextColor: "#f4f4f5", noteBkgColor: "#1a1a1d", noteBorderColor: "#3a3a3e",
+          noteTextColor: "#f4f4f5", sequenceNumberColor: "#0a0a0b"
+        }
+      });
+      const wasHidden = panels.map(p => p.hidden);
+      panels.forEach(p => { p.hidden = false; p.style.display = "block"; });
+      await mermaid.run({ querySelector: ".mermaid" });
+      panels.forEach((p, i) => { p.style.display = ""; p.hidden = wasHidden[i]; });
+    } catch (e) {
+      console.warn("Mermaid unavailable - showing diagram source.", e);
+      document.querySelectorAll(".mermaid").forEach(el => el.classList.add("mermaid-fallback"));
+    }
+    function activate(btn) {
+      const key = btn.dataset.tab;
+      btns.forEach(b => { const on = b === btn; b.classList.toggle("active", on); b.setAttribute("aria-selected", on ? "true" : "false"); b.tabIndex = on ? 0 : -1; });
+      panels.forEach(p => { const on = p.dataset.panel === key; p.classList.toggle("active", on); p.hidden = !on; });
+    }
+    btns.forEach((btn, i) => {
+      btn.addEventListener("click", () => activate(btn));
+      btn.addEventListener("keydown", (e) => {
+        if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+        e.preventDefault();
+        const next = btns[(i + (e.key === "ArrowRight" ? 1 : -1) + btns.length) % btns.length];
+        next.focus(); activate(next);
+      });
+    });
+  </script>
+  <script src="assets/site.js"></script>
+</body>
+</html>
