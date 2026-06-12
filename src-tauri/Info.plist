@@ -6,6 +6,8 @@
   <true/>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.utilities</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>AirAssistant connects to a local OpenAI-compatible MLX server on this Mac.</string>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSRequiresAquaSystemAppearance</key>

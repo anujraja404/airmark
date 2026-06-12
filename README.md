@@ -1,89 +1,45 @@
-# Airmark
+# AirAssistant
 
-Airmark is a macOS 13+ menu-bar app that puts a watermark on one selected display without blocking the keyboard, mouse, or menu bar.
+AirAssistant is a macOS 13+ dockless overlay prototype for local AI-assisted export and backup workflows. It combines a transparent Tauri shell, a React/TypeScript retro dialogue UI, a Rust command core, and a locally hosted OpenAI-compatible MLX endpoint.
 
-<p>
-  <a href="https://github.com/anujraja/Airmark/releases/latest">
-    <strong>Download the latest DMG</strong>
-  </a>
-</p>
+## What It Does
 
-<p>
-  <a href="https://www.anujraja.com/projects/airmark">
-    <strong>View the landing page</strong>
-  </a>
-</p>
-
-## Metrics
-
-- Native app bundle, not Electron.
-- Rust handles tray, state, display selection, overlay placement, and macOS bridges.
-- React renders only the settings UI and watermark content.
-- Settings persist in a small local JSON file.
-- No background server process.
+- Shows a small bottom-right trigger button.
+- Opens a semi-transparent top-middle chat overlay while leaving the rest of macOS usable.
+- Talks to a local MLX server through `AIRASSISTANT_LLM_URL` or `http://localhost:8080/v1/chat/completions`.
+- Renders assistant choices in a Gameboy/Nintendo-style dialogue flow.
+- Requires user confirmation before running any local export or backup command.
+- Streams allowlisted CLI output back into the overlay.
 
 ## Architecture
 
 ```mermaid
-flowchart LR
-  subgraph macOS["macOS 13+"]
-    Tray["Menu Bar Tray"]
-    SettingsWindow["Native Settings Window"]
-    OverlayWindow["Transparent Overlay Window"]
-    LoginItem["Launch at Login"]
-  end
-
-  subgraph App["Airmark App"]
-    Rust["Rust / Tauri Core"]
-    State["Persisted App State"]
-    MacOSShim["macOS Shim\n(AppKit bridge)"]
-    Frontend["React + TypeScript UI"]
-    Renderer["Overlay Renderer"]
-  end
-
-  Tray --> Rust
-  SettingsWindow --> Frontend
-  Frontend --> Rust
-  Rust --> State
-  Rust --> MacOSShim
-  Rust --> OverlayWindow
-  Frontend --> Renderer
-  Renderer --> OverlayWindow
-  LoginItem --> Rust
+flowchart TB
+  Trigger["Trigger Window"] --> Overlay["Transparent Overlay Window"]
+  Overlay --> React["React + TypeScript UI"]
+  React --> Rust["Rust / Tauri Core"]
+  Rust --> MLX["Local MLX OpenAI-Compatible API"]
+  Rust --> Tools["Allowlisted CLI Tools"]
+  Tools --> ChatGPT["chatgpt-download-engine"]
+  Tools --> AirCDE["air-cde-2"]
 ```
 
-## Features
+## Allowlisted Tools
 
-- Dockless macOS utility.
-- Tray menu for enable/disable, settings, display selection, and quit.
-- Text mode with opacity, size, and spacing controls.
-- Image mode with drag/drop, file picker, and clipboard paste.
-- Settings persist across relaunches.
-- Launch-at-login support.
+- `chatgpt_export_incremental`: runs the local ChatGPT Download Engine incremental export script.
+- `chatgpt_doctor`: checks ChatGPT Download Engine configuration without exporting.
+- `air_cde_backup_incremental`: backs up Codex, Claude Code, and Antigravity knowledge using air-cde-2.
 
-## Screenshots
+The LLM never sends raw shell commands for execution.
 
-### Menu Bar Options
+## Environment
 
-![Menu bar](docs/screenshots/menubar.png)
+```bash
+export AIRASSISTANT_LLM_URL="http://localhost:8080/v1/chat/completions"
+export AIRASSISTANT_LLM_MODEL="mlx"
+```
 
-### Settings Page: Text Mode
-
-![Text mode settings](docs/screenshots/textmode.png)
-
-### Settings Page: Image Mode
-
-![Image mode settings](docs/screenshots/imagemode.png)
-
-### Desktop Overlay Example
-
-![Desktop overlay](docs/screenshots/desktopexample.png)
-
-## Install
-
-1. Open the DMG.
-2. Drag `Airmark.app` into `Applications`.
-3. Launch Airmark from `Applications` or the menu bar.
+Both variables are optional. The values above are the defaults.
 
 ## Develop
 
@@ -92,13 +48,17 @@ npm install
 npm run tauri dev
 ```
 
+## Verify
+
+```bash
+npm run build
+cd src-tauri && cargo check
+```
+
 ## Build
 
 ```bash
 npm run tauri build
 ```
 
-Release artifacts:
-
-- `src-tauri/target/release/bundle/macos/Airmark.app`
-- `src-tauri/target/release/bundle/dmg/Airmark_0.1.0_aarch64.dmg`
+Release artifacts are written under `src-tauri/target/release/bundle/`.
