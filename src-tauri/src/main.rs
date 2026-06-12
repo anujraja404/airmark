@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    airassistant_lib::run()
+    tauri_appairmark_lib::run()
 }

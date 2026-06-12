@@ -1,358 +1,78 @@
 mod macos_shim;
+mod state;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use state::{PersistedState, WatermarkSettings};
 use std::{
-    collections::HashMap,
-    env,
+    fs,
     path::Path,
-    process::Stdio,
-    sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
+
 use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem},
+    menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl,
     WebviewWindow, WebviewWindowBuilder,
 };
-use tokio::{
-    io::{AsyncBufReadExt, BufReader},
-    process::Command,
-};
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
+const CONTROLS_WINDOW_LABEL: &str = "controls";
 const OVERLAY_WINDOW_LABEL: &str = "overlay";
-const TRIGGER_WINDOW_LABEL: &str = "trigger";
-const DEFAULT_LLM_URL: &str = "http://localhost:8080/v1/chat/completions";
-const DEFAULT_LLM_MODEL: &str = "mlx";
-
-#[derive(Default)]
-struct AssistantState {
-    pending: Mutex<HashMap<String, ToolProposal>>,
-    running: Mutex<HashMap<String, u32>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ChatMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, Serialize)]
-struct LlmRequest {
-    model: String,
-    messages: Vec<ChatMessage>,
-    temperature: f32,
-}
-
-#[derive(Debug, Deserialize)]
-struct LlmChoice {
-    message: ChatMessage,
-}
-
-#[derive(Debug, Deserialize)]
-struct LlmResponse {
-    choices: Vec<LlmChoice>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AssistantTurn {
-    message: String,
-    #[serde(default)]
-    choices: Vec<String>,
-    #[serde(default)]
-    proposed_tool: Option<ToolProposalRequest>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ToolProposalRequest {
-    tool_id: ToolId,
-    label: Option<String>,
-    rationale: Option<String>,
-    #[serde(default)]
-    params: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ToolProposal {
-    proposal_id: String,
-    tool_id: ToolId,
-    label: String,
-    rationale: String,
-    cwd: String,
-    command_preview: Vec<String>,
-    #[serde(default)]
-    params: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-enum ToolId {
-    ChatgptExportIncremental,
-    ChatgptDoctor,
-    AirCdeBackupIncremental,
-}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct AssistantPayload {
-    message: String,
-    choices: Vec<String>,
-    proposed_tool: Option<ToolProposal>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ToolLogPayload {
-    run_id: String,
-    tool_id: ToolId,
-    line: String,
-    is_error: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ToolDonePayload {
-    run_id: String,
-    tool_id: ToolId,
-    success: bool,
-    status: String,
+struct DisplayInfo {
+    id: String,
+    name: String,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    full_x: i32,
+    full_y: i32,
+    full_width: u32,
+    full_height: u32,
+    scale_factor: f64,
+    primary: bool,
 }
 
 #[tauri::command]
-fn set_interaction_mode(app: AppHandle, mode: String) -> Result<(), String> {
-    let interactive = match mode.as_str() {
-        "interactive" => true,
-        "passThrough" => false,
-        other => return Err(format!("unsupported interaction mode: {other}")),
-    };
-
-    let Some(overlay) = app.get_webview_window(OVERLAY_WINDOW_LABEL) else {
-        return Ok(());
-    };
-
-    overlay
-        .set_focusable(interactive)
-        .map_err(|e| format!("failed to update overlay focus mode: {e}"))?;
-    macos_shim::set_click_through(&overlay, !interactive)?;
-
-    if interactive {
-        overlay
-            .set_focus()
-            .map_err(|e| format!("failed to focus overlay: {e}"))?;
-        macos_shim::bring_settings_window_to_front(&overlay)?;
-    }
-
-    Ok(())
+fn get_settings(state: State<'_, PersistedState>) -> WatermarkSettings {
+    state.get()
 }
 
 #[tauri::command]
-fn set_assistant_visible(app: AppHandle, visible: bool) -> Result<(), String> {
-    if let Some(overlay) = app.get_webview_window(OVERLAY_WINDOW_LABEL) {
-        if visible {
-            position_overlay_window(&app, &overlay)?;
-            overlay
-                .show()
-                .map_err(|e| format!("failed to show overlay: {e}"))?;
-            set_interaction_mode(app.clone(), "interactive".to_string())?;
-            app.emit("assistant_visibility", true)
-                .map_err(|e| format!("failed to emit visibility event: {e}"))?;
-        } else {
-            app.emit("assistant_visibility", false)
-                .map_err(|e| format!("failed to emit visibility event: {e}"))?;
-            set_interaction_mode(app.clone(), "passThrough".to_string())?;
-            overlay
-                .hide()
-                .map_err(|e| format!("failed to hide overlay: {e}"))?;
-        }
-    }
-    Ok(())
+fn list_displays(app: AppHandle) -> Result<Vec<DisplayInfo>, String> {
+    displays_from_app(&app)
 }
 
 #[tauri::command]
-async fn send_chat_turn(
+fn update_settings(
     app: AppHandle,
-    state: State<'_, AssistantState>,
-    messages: Vec<ChatMessage>,
-) -> Result<(), String> {
-    let result = request_assistant_turn(messages).await;
-    match result {
-        Ok(turn) => {
-            app.emit("llm_delta", turn.message.clone())
-                .map_err(|e| format!("failed to emit llm delta: {e}"))?;
-
-            let proposal = match turn.proposed_tool {
-                Some(request) => Some(create_tool_proposal(
-                    request.tool_id,
-                    request.label,
-                    request.rationale,
-                    request.params,
-                )?),
-                None => classify_tool_from_intent(&turn.message)
-                    .map(|tool_id| create_tool_proposal(tool_id, None, None, HashMap::new()))
-                    .transpose()?,
-            };
-
-            if let Some(proposal) = proposal.clone() {
-                state
-                    .pending
-                    .lock()
-                    .expect("pending proposal mutex poisoned")
-                    .insert(proposal.proposal_id.clone(), proposal);
-            }
-
-            let payload = AssistantPayload {
-                message: turn.message,
-                choices: default_choices(turn.choices),
-                proposed_tool: proposal,
-            };
-            app.emit("llm_done", payload)
-                .map_err(|e| format!("failed to emit llm done: {e}"))?;
-            Ok(())
-        }
-        Err(error) => {
-            let fallback = AssistantPayload {
-                message: format!(
-                    "I could not reach the local MLX server. Check AIRASSISTANT_LLM_URL or start the server at {DEFAULT_LLM_URL}."
-                ),
-                choices: vec![
-                    "Export ChatGPT Chats".to_string(),
-                    "Backup Codex, Claude, and Antigravity".to_string(),
-                ],
-                proposed_tool: None,
-            };
-            app.emit("llm_error", error.clone())
-                .map_err(|e| format!("failed to emit llm error: {e}"))?;
-            app.emit("llm_done", fallback)
-                .map_err(|e| format!("failed to emit fallback response: {e}"))?;
-            Err(error)
-        }
-    }
+    state: State<'_, PersistedState>,
+    settings: WatermarkSettings,
+) -> Result<WatermarkSettings, String> {
+    let next = state.set(settings)?;
+    apply_autostart(&app, next.launch_at_login)?;
+    apply_overlay_state(&app, &next)?;
+    emit_settings_changed(&app, &next)?;
+    refresh_tray_menu(&app)?;
+    Ok(next)
 }
 
 #[tauri::command]
-fn propose_tool(
-    state: State<'_, AssistantState>,
-    intent: String,
-) -> Result<Option<ToolProposal>, String> {
-    let Some(tool_id) = classify_tool_from_intent(&intent) else {
-        return Ok(None);
-    };
-    let proposal = create_tool_proposal(tool_id, None, None, HashMap::new())?;
-    state
-        .pending
-        .lock()
-        .expect("pending proposal mutex poisoned")
-        .insert(proposal.proposal_id.clone(), proposal.clone());
-    Ok(Some(proposal))
+fn open_settings(app: AppHandle) -> Result<(), String> {
+    show_controls_window(&app)
 }
 
 #[tauri::command]
-async fn approve_tool_run(
-    app: AppHandle,
-    state: State<'_, AssistantState>,
-    proposal_id: String,
-) -> Result<String, String> {
-    let proposal = {
-        let mut guard = state
-            .pending
-            .lock()
-            .expect("pending proposal mutex poisoned");
-        guard
-            .remove(&proposal_id)
-            .ok_or_else(|| "tool proposal was not found or already used".to_string())?
-    };
-
-    let run_id = unique_id("run");
-    let command_spec = command_spec_for_tool(proposal.tool_id)?;
-    if let Some(parent) = command_spec.output_parent {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("failed to create output folder {parent}: {e}"))?;
+fn hide_controls(app: AppHandle) -> Result<(), String> {
+    if let Some(controls) = app.get_webview_window(CONTROLS_WINDOW_LABEL) {
+        controls
+            .hide()
+            .map_err(|e| format!("failed to hide controls window: {e}"))?;
     }
-
-    let mut child = Command::new(command_spec.program)
-        .args(command_spec.args)
-        .current_dir(command_spec.cwd)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("failed to start {}: {e}", proposal.label))?;
-
-    if let Some(pid) = child.id() {
-        state
-            .running
-            .lock()
-            .expect("running process mutex poisoned")
-            .insert(run_id.clone(), pid);
-    }
-
-    if let Some(stdout) = child.stdout.take() {
-        spawn_log_reader(app.clone(), run_id.clone(), proposal.tool_id, stdout, false);
-    }
-    if let Some(stderr) = child.stderr.take() {
-        spawn_log_reader(app.clone(), run_id.clone(), proposal.tool_id, stderr, true);
-    }
-
-    let app_for_wait = app.clone();
-    let run_for_wait = run_id.clone();
-    tauri::async_runtime::spawn(async move {
-        let status = child.wait().await;
-        app_for_wait
-            .state::<AssistantState>()
-            .running
-            .lock()
-            .expect("running process mutex poisoned")
-            .remove(&run_for_wait);
-
-        let payload = match status {
-            Ok(status) => ToolDonePayload {
-                run_id: run_for_wait,
-                tool_id: proposal.tool_id,
-                success: status.success(),
-                status: status.to_string(),
-            },
-            Err(error) => ToolDonePayload {
-                run_id: run_for_wait,
-                tool_id: proposal.tool_id,
-                success: false,
-                status: format!("failed to wait for process: {error}"),
-            },
-        };
-        let _ = app_for_wait.emit("tool_done", payload);
-    });
-
-    Ok(run_id)
-}
-
-#[tauri::command]
-fn cancel_tool_run(
-    state: State<'_, AssistantState>,
-    run_id: String,
-) -> Result<(), String> {
-    let pid = state
-        .running
-        .lock()
-        .expect("running process mutex poisoned")
-        .remove(&run_id)
-        .ok_or_else(|| "tool run was not found or already finished".to_string())?;
-
-    #[cfg(target_family = "unix")]
-    {
-        std::process::Command::new("/bin/kill")
-            .arg("-TERM")
-            .arg(pid.to_string())
-            .status()
-            .map_err(|e| format!("failed to cancel tool run: {e}"))?;
-    }
-
-    #[cfg(not(target_family = "unix"))]
-    {
-        return Err("cancel is only implemented for Unix-like systems".to_string());
-    }
-
     Ok(())
 }
 
@@ -361,12 +81,85 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+fn resize_controls_for_mode(app: AppHandle, mode: String) -> Result<(), String> {
+    if let Some(controls) = app.get_webview_window(CONTROLS_WINDOW_LABEL) {
+        let height = if mode == "image" { 340.0 } else { 398.0 };
+        controls
+            .set_size(LogicalSize::new(430.0, height))
+            .map_err(|e| format!("failed to resize settings window: {e}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn paste_copied_image_file() -> Result<Option<String>, String> {
+    let Some(path) = macos_shim::copied_image_file_path()? else {
+        return Ok(None);
+    };
+
+    let extension = Path::new(&path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let is_image = matches!(
+        extension.as_str(),
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tif" | "tiff"
+    );
+    if !is_image {
+        return Err("The copied file is not a supported image.".to_string());
+    }
+
+    Ok(Some(path))
+}
+
+#[tauri::command]
+fn paste_clipboard_image(app: AppHandle) -> Result<Option<String>, String> {
+    if let Some(bytes) = macos_shim::copied_image_png_bytes()? {
+        let mut image_dir = app
+            .path()
+            .app_config_dir()
+            .map_err(|e| format!("failed to resolve app config dir: {e}"))?;
+        image_dir.push("pasted-images");
+        fs::create_dir_all(&image_dir)
+            .map_err(|e| format!("failed to create pasted image directory: {e}"))?;
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| format!("failed to create pasted image timestamp: {e}"))?
+            .as_millis();
+        image_dir.push(format!("airmark-pasted-{timestamp}.png"));
+        fs::write(&image_dir, bytes)
+            .map_err(|e| format!("failed to save pasted image: {e}"))?;
+        return Ok(Some(image_dir.to_string_lossy().to_string()));
+    }
+
+    paste_copied_image_file()
+}
+
+#[tauri::command]
+fn toggle_enabled(app: AppHandle, state: State<'_, PersistedState>) -> Result<WatermarkSettings, String> {
+    let next = state.update(|settings| {
+        settings.setup_completed = true;
+        settings.enabled = !settings.enabled;
+    })?;
+    apply_overlay_state(&app, &next)?;
+    emit_settings_changed(&app, &next)?;
+    refresh_tray_menu(&app)?;
+    Ok(next)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(AssistantState::default())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .macos_launcher(MacosLauncher::LaunchAgent)
+                .build(),
+        )
         .on_menu_event(|app, event| {
             if let Err(error) = handle_tray_menu_event(app, event.id.as_ref()) {
                 eprintln!("tray event error: {error}");
@@ -376,22 +169,69 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
+            let state = PersistedState::load(&app.handle())?;
+            let initial_settings = state.get();
+            app.manage(state);
+
+            create_controls_window(&app.handle())?;
             create_overlay_window(&app.handle())?;
-            create_trigger_window(&app.handle())?;
+            apply_autostart(&app.handle(), initial_settings.launch_at_login)?;
+            apply_overlay_state(&app.handle(), &initial_settings)?;
             create_tray(&app.handle())?;
+            if !initial_settings.setup_completed {
+                show_controls_window_at_default_position(&app.handle())?;
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            set_interaction_mode,
-            set_assistant_visible,
-            send_chat_turn,
-            propose_tool,
-            approve_tool_run,
-            cancel_tool_run,
+            get_settings,
+            list_displays,
+            update_settings,
+            open_settings,
+            hide_controls,
             quit_app,
+            resize_controls_for_mode,
+            paste_copied_image_file,
+            paste_clipboard_image,
+            toggle_enabled
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn create_controls_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    if let Some(existing) = app.get_webview_window(CONTROLS_WINDOW_LABEL) {
+        return Ok(existing);
+    }
+
+    let window = WebviewWindowBuilder::new(
+        app,
+        CONTROLS_WINDOW_LABEL,
+        WebviewUrl::App("index.html?view=controls".into()),
+    )
+    .title("Airmark")
+    .inner_size(430.0, 398.0)
+    .resizable(false)
+    .decorations(true)
+    .shadow(true)
+    .always_on_top(false)
+    .skip_taskbar(true)
+    .visible(false)
+    .build()
+    .map_err(|e| format!("failed to create controls window: {e}"))?;
+
+    let app_handle = app.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            if let Some(controls) = app_handle.get_webview_window(CONTROLS_WINDOW_LABEL) {
+                let _ = controls.hide();
+            }
+        }
+    });
+
+    Ok(window)
 }
 
 fn create_overlay_window(app: &AppHandle) -> Result<WebviewWindow, String> {
@@ -404,7 +244,7 @@ fn create_overlay_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         OVERLAY_WINDOW_LABEL,
         WebviewUrl::App("index.html?view=overlay".into()),
     )
-    .title("AirAssistant")
+    .title("Watermark Overlay")
     .decorations(false)
     .transparent(true)
     .shadow(false)
@@ -418,103 +258,50 @@ fn create_overlay_window(app: &AppHandle) -> Result<WebviewWindow, String> {
 
     overlay
         .set_visible_on_all_workspaces(true)
-        .map_err(|e| format!("failed to set overlay workspace visibility: {e}"))?;
-    position_overlay_window(app, &overlay)?;
+        .map_err(|e| format!("failed to set workspace visibility: {e}"))?;
     macos_shim::apply_overlay_window_behavior(&overlay)?;
     macos_shim::set_click_through(&overlay, true)?;
+
     Ok(overlay)
 }
 
-fn create_trigger_window(app: &AppHandle) -> Result<WebviewWindow, String> {
-    if let Some(existing) = app.get_webview_window(TRIGGER_WINDOW_LABEL) {
-        return Ok(existing);
+fn apply_overlay_state(app: &AppHandle, settings: &WatermarkSettings) -> Result<(), String> {
+    let overlay = app
+        .get_webview_window(OVERLAY_WINDOW_LABEL)
+        .ok_or_else(|| "overlay window is not available".to_string())?;
+
+    if !settings.enabled || !settings.setup_completed {
+        overlay
+            .hide()
+            .map_err(|e| format!("failed to hide overlay: {e}"))?;
+        return Ok(());
     }
 
-    let trigger = WebviewWindowBuilder::new(
-        app,
-        TRIGGER_WINDOW_LABEL,
-        WebviewUrl::App("index.html?view=trigger".into()),
-    )
-    .title("AirAssistant Trigger")
-    .inner_size(96.0, 96.0)
-    .decorations(false)
-    .transparent(true)
-    .shadow(false)
-    .resizable(false)
-    .focusable(false)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .visible(true)
-    .build()
-    .map_err(|e| format!("failed to create trigger window: {e}"))?;
-
-    trigger
-        .set_visible_on_all_workspaces(true)
-        .map_err(|e| format!("failed to set trigger workspace visibility: {e}"))?;
-    position_trigger_window(app, &trigger)?;
-    Ok(trigger)
-}
-
-fn position_overlay_window(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
-    let Some(display) = primary_display(app)? else {
-        return Ok(());
+    let displays = displays_from_app(app)?;
+    let chosen = match settings.selected_display_id.as_ref() {
+        Some(display_id) => displays.iter().find(|d| &d.id == display_id),
+        None => None,
     };
-    let target_width = ((display.width as f64) * 0.78)
-        .clamp(420.0, 840.0)
-        .min(display.width as f64) as u32;
-    let target_height = ((display.height as f64) * 0.58)
-        .clamp(420.0, 660.0)
-        .min(display.height as f64) as u32;
-    let x = display.x + ((display.width.saturating_sub(target_width)) / 2) as i32;
-    let y = display.y + 24;
+    let target_display = chosen.or_else(|| displays.iter().find(|d| d.primary)).or_else(|| displays.first());
 
-    window
-        .set_position(PhysicalPosition::new(x, y))
-        .map_err(|e| format!("failed to position overlay: {e}"))?;
-    window
-        .set_size(PhysicalSize::new(target_width, target_height))
-        .map_err(|e| format!("failed to size overlay: {e}"))?;
+    if let Some(display) = target_display {
+        overlay
+            .set_position(PhysicalPosition::new(display.x, display.y))
+            .map_err(|e| format!("failed to position overlay: {e}"))?;
+        overlay
+            .set_size(PhysicalSize::new(display.width, display.height))
+            .map_err(|e| format!("failed to resize overlay: {e}"))?;
+    }
+
+    overlay
+        .show()
+        .map_err(|e| format!("failed to show overlay: {e}"))?;
+    overlay
+        .set_focusable(false)
+        .map_err(|e| format!("failed to keep overlay non-focusable: {e}"))?;
+    macos_shim::set_click_through(&overlay, true)?;
+
     Ok(())
-}
-
-fn position_trigger_window(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
-    let Some(display) = primary_display(app)? else {
-        return Ok(());
-    };
-    let size = 96_u32;
-    let margin = 24_i32;
-    let x = display.x + display.width as i32 - size as i32 - margin;
-    let y = display.y + display.height as i32 - size as i32 - margin;
-    window
-        .set_position(PhysicalPosition::new(x, y))
-        .map_err(|e| format!("failed to position trigger: {e}"))?;
-    window
-        .set_size(PhysicalSize::new(size, size))
-        .map_err(|e| format!("failed to size trigger: {e}"))?;
-    Ok(())
-}
-
-fn primary_display(app: &AppHandle) -> Result<Option<DisplayFrame>, String> {
-    let monitor = app
-        .primary_monitor()
-        .map_err(|e| format!("failed to read primary display: {e}"))?;
-    Ok(monitor.map(|monitor| {
-        let work_area = monitor.work_area();
-        DisplayFrame {
-            x: work_area.position.x,
-            y: work_area.position.y,
-            width: work_area.size.width,
-            height: work_area.size.height,
-        }
-    }))
-}
-
-#[derive(Debug)]
-struct DisplayFrame {
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
 }
 
 fn create_tray(app: &AppHandle) -> Result<(), String> {
@@ -522,10 +309,14 @@ fn create_tray(app: &AppHandle) -> Result<(), String> {
     if let Some(tray) = app.tray_by_id("main") {
         tray.set_menu(Some(menu))
             .map_err(|e| format!("failed to attach tray menu: {e}"))?;
+        tray.set_show_menu_on_left_click(true)
+            .map_err(|e| format!("failed to configure tray click behavior: {e}"))?;
+        tray.set_icon_as_template(true)
+            .map_err(|e| format!("failed to set tray icon template mode: {e}"))?;
         return Ok(());
     }
 
-    let mut builder = TrayIconBuilder::with_id("main")
+    let mut builder = TrayIconBuilder::new()
         .menu(&menu)
         .show_menu_on_left_click(true)
         .icon_as_template(true);
@@ -535,273 +326,239 @@ fn create_tray(app: &AppHandle) -> Result<(), String> {
     builder
         .build(app)
         .map_err(|e| format!("failed to build tray icon: {e}"))?;
+
+    Ok(())
+}
+
+fn refresh_tray_menu(app: &AppHandle) -> Result<(), String> {
+    if let Some(tray) = app.tray_by_id("main") {
+        let menu = build_tray_menu(app)?;
+        tray.set_menu(Some(menu))
+            .map_err(|e| format!("failed to refresh tray menu: {e}"))?;
+    }
     Ok(())
 }
 
 fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, String> {
-    let open_item = MenuItem::with_id(app, "open", "Open AirAssistant", true, None::<&str>)
-        .map_err(|e| format!("failed to create open menu item: {e}"))?;
-    let hide_item = MenuItem::with_id(app, "hide", "Hide AirAssistant", true, None::<&str>)
-        .map_err(|e| format!("failed to create hide menu item: {e}"))?;
-    let llm_item = MenuItem::with_id(
-        app,
-        "llm_status",
-        format!("LLM: {}", llm_url()),
-        false,
-        None::<&str>,
-    )
-    .map_err(|e| format!("failed to create LLM status menu item: {e}"))?;
+    let settings = app.state::<PersistedState>().get();
+    let displays = displays_from_app(app)?;
+
+    let toggle_label = if settings.enabled {
+        "Disable Watermark"
+    } else {
+        "Enable Watermark"
+    };
+
+    let toggle_item = MenuItem::with_id(app, "toggle_watermark", toggle_label, true, None::<&str>)
+        .map_err(|e| format!("failed to create toggle menu item: {e}"))?;
+    let controls_item = MenuItem::with_id(app, "show_controls", "Open Settings", true, None::<&str>)
+        .map_err(|e| format!("failed to create controls menu item: {e}"))?;
+    let display_items = displays
+        .iter()
+        .map(|display| {
+            CheckMenuItem::with_id(
+                app,
+                format!("display::{}", display.id),
+                display_label_for_menu(display),
+                true,
+                settings
+                    .selected_display_id
+                    .as_ref()
+                    .map(|selected| selected == &display.id)
+                    .unwrap_or(display.primary),
+                None::<&str>,
+            )
+            .map_err(|e| format!("failed to create display menu item: {e}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let display_item_refs = display_items
+        .iter()
+        .map(|item| item as &dyn IsMenuItem<tauri::Wry>)
+        .collect::<Vec<_>>();
+    let display_submenu = Submenu::with_items(app, "Choose Display", true, &display_item_refs)
+        .map_err(|e| format!("failed to create display submenu: {e}"))?;
+
     let separator =
         PredefinedMenuItem::separator(app).map_err(|e| format!("failed to create separator: {e}"))?;
     let quit_item =
         MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)
             .map_err(|e| format!("failed to create quit menu item: {e}"))?;
 
-    Menu::with_items(app, &[&open_item, &hide_item, &llm_item, &separator, &quit_item])
-        .map_err(|e| format!("failed to build tray menu: {e}"))
+    let menu = Menu::with_items(
+        app,
+        &[
+            &toggle_item,
+            &controls_item,
+            &display_submenu,
+            &separator,
+            &quit_item,
+        ],
+    )
+    .map_err(|e| format!("failed to create tray menu: {e}"))?;
+
+    Ok(menu)
+}
+
+fn display_label_for_menu(display: &DisplayInfo) -> String {
+    if display.primary {
+        format!("Primary - {}", display.name)
+    } else {
+        display.name.clone()
+    }
 }
 
 fn handle_tray_menu_event(app: &AppHandle, event_id: &str) -> Result<(), String> {
     match event_id {
-        "open" => set_assistant_visible(app.clone(), true),
-        "hide" => set_assistant_visible(app.clone(), false),
+        "show_controls" | "open_settings" => {
+            show_controls_window(app)?;
+        }
+        "toggle_watermark" => {
+            let state = app.state::<PersistedState>();
+            let next = state.update(|settings| {
+                settings.setup_completed = true;
+                settings.enabled = !settings.enabled;
+            })?;
+            apply_overlay_state(app, &next)?;
+            emit_settings_changed(app, &next)?;
+            refresh_tray_menu(app)?;
+        }
         "quit" => {
             app.exit(0);
-            Ok(())
         }
-        _ => Ok(()),
-    }
-}
-
-async fn request_assistant_turn(messages: Vec<ChatMessage>) -> Result<AssistantTurn, String> {
-    let mut request_messages = vec![ChatMessage {
-        role: "system".to_string(),
-        content: system_prompt(),
-    }];
-    request_messages.extend(messages);
-
-    let request = LlmRequest {
-        model: llm_model(),
-        messages: request_messages,
-        temperature: 0.4,
-    };
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(45))
-        .build()
-        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
-    let response = client
-        .post(llm_url())
-        .json(&request)
-        .send()
-        .await
-        .map_err(|e| format!("failed to connect to local MLX server: {e}"))?;
-
-    let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|e| format!("failed to read local MLX response: {e}"))?;
-    if !status.is_success() {
-        return Err(format!("local MLX server returned {status}: {text}"));
-    }
-
-    let content = serde_json::from_str::<LlmResponse>(&text)
-        .ok()
-        .and_then(|parsed| parsed.choices.into_iter().next())
-        .map(|choice| choice.message.content)
-        .unwrap_or(text);
-
-    parse_assistant_turn(&content)
-}
-
-fn parse_assistant_turn(content: &str) -> Result<AssistantTurn, String> {
-    let trimmed = content.trim();
-    if let Ok(turn) = serde_json::from_str::<AssistantTurn>(trimmed) {
-        return Ok(turn);
-    }
-
-    let json_block = trimmed
-        .strip_prefix("```json")
-        .and_then(|value| value.strip_suffix("```"))
-        .or_else(|| trimmed.strip_prefix("```").and_then(|value| value.strip_suffix("```")));
-    if let Some(block) = json_block {
-        if let Ok(turn) = serde_json::from_str::<AssistantTurn>(block.trim()) {
-            return Ok(turn);
+        _ if event_id.starts_with("display::") => {
+            let chosen_display = event_id.trim_start_matches("display::").to_string();
+            let state = app.state::<PersistedState>();
+            let next = state.update(|settings| {
+                settings.setup_completed = true;
+                settings.selected_display_id = Some(chosen_display);
+            })?;
+            apply_overlay_state(app, &next)?;
+            emit_settings_changed(app, &next)?;
+            refresh_tray_menu(app)?;
         }
-    }
-
-    Ok(AssistantTurn {
-        message: trimmed.to_string(),
-        choices: Vec::new(),
-        proposed_tool: None,
-    })
-}
-
-fn default_choices(choices: Vec<String>) -> Vec<String> {
-    let filtered = choices
-        .into_iter()
-        .map(|choice| choice.trim().to_string())
-        .filter(|choice| !choice.is_empty())
-        .take(2)
-        .collect::<Vec<_>>();
-
-    if filtered.is_empty() {
-        vec![
-            "Export ChatGPT Chats".to_string(),
-            "Backup Codex, Claude, and Antigravity".to_string(),
-        ]
-    } else {
-        filtered
-    }
-}
-
-fn system_prompt() -> String {
-    [
-        "You are AirAssistant, a concise local macOS AI operator.",
-        "Return only JSON matching this TypeScript shape:",
-        r#"{"message":"short user-facing reply","choices":["choice one","choice two"],"proposedTool":{"toolId":"chatgpt_export_incremental|chatgpt_doctor|air_cde_backup_incremental","label":"optional","rationale":"optional","params":{}}}"#,
-        "Offer at most two choices. The UI always provides a third free-text option.",
-        "Only propose a tool when the user clearly asks to export, back up, diagnose, or run a supported local workflow.",
-        "Never invent unsupported tool IDs. Never ask for secrets or tokens.",
-    ]
-    .join(" ")
-}
-
-fn llm_url() -> String {
-    env::var("AIRASSISTANT_LLM_URL").unwrap_or_else(|_| DEFAULT_LLM_URL.to_string())
-}
-
-fn llm_model() -> String {
-    env::var("AIRASSISTANT_LLM_MODEL").unwrap_or_else(|_| DEFAULT_LLM_MODEL.to_string())
-}
-
-fn classify_tool_from_intent(intent: &str) -> Option<ToolId> {
-    let lowered = intent.to_ascii_lowercase();
-    if lowered.contains("doctor") && lowered.contains("chatgpt") {
-        return Some(ToolId::ChatgptDoctor);
-    }
-    if lowered.contains("chatgpt") && (lowered.contains("export") || lowered.contains("backup")) {
-        return Some(ToolId::ChatgptExportIncremental);
-    }
-    if lowered.contains("codex")
-        || lowered.contains("claude")
-        || lowered.contains("antigravity")
-        || lowered.contains("memory")
-        || lowered.contains("knowledge")
-    {
-        return Some(ToolId::AirCdeBackupIncremental);
-    }
-    None
-}
-
-fn create_tool_proposal(
-    tool_id: ToolId,
-    label: Option<String>,
-    rationale: Option<String>,
-    params: HashMap<String, String>,
-) -> Result<ToolProposal, String> {
-    let spec = command_spec_for_tool(tool_id)?;
-    Ok(ToolProposal {
-        proposal_id: unique_id("proposal"),
-        tool_id,
-        label: label.unwrap_or_else(|| spec.label.to_string()),
-        rationale: rationale.unwrap_or_else(|| spec.rationale.to_string()),
-        cwd: spec.cwd.to_string(),
-        command_preview: std::iter::once(spec.program.to_string())
-            .chain(spec.args.iter().map(|arg| arg.to_string()))
-            .collect(),
-        params,
-    })
-}
-
-struct CommandSpec<'a> {
-    label: &'a str,
-    rationale: &'a str,
-    cwd: &'a str,
-    program: &'a str,
-    args: &'a [&'a str],
-    output_parent: Option<&'a str>,
-}
-
-fn command_spec_for_tool(tool_id: ToolId) -> Result<CommandSpec<'static>, String> {
-    let spec = match tool_id {
-        ToolId::ChatgptExportIncremental => CommandSpec {
-            label: "Export ChatGPT Chats",
-            rationale: "Runs the local ChatGPT Download Engine incremental archive workflow.",
-            cwd: "/Users/macbookpro/Developer/chatgpt-download-engine",
-            program: "/Users/macbookpro/Developer/chatgpt-download-engine/scripts/download-incremental.sh",
-            args: &[],
-            output_parent: None,
-        },
-        ToolId::ChatgptDoctor => CommandSpec {
-            label: "Check ChatGPT Export Setup",
-            rationale: "Runs the ChatGPT Download Engine doctor command without exporting data.",
-            cwd: "/Users/macbookpro/Developer/chatgpt-download-engine",
-            program: "python3",
-            args: &["-m", "chatgpt_download_engine", "doctor"],
-            output_parent: None,
-        },
-        ToolId::AirCdeBackupIncremental => CommandSpec {
-            label: "Backup Codex, Claude, and Antigravity",
-            rationale: "Runs air-cde-2 incrementally and packages the local developer-agent archive.",
-            cwd: "/Users/macbookpro/Documents/antigravity/fervent-galileo/air-cde-2",
-            program: "node",
-            args: &[
-                "bin/cli.js",
-                "--incremental",
-                "--zip",
-                "--output",
-                "/Users/macbookpro/Documents/antigravity/lively-tesla/exports/air-cde",
-            ],
-            output_parent: Some("/Users/macbookpro/Documents/antigravity/lively-tesla/exports"),
-        },
-    };
-
-    validate_command_spec(&spec)?;
-    Ok(spec)
-}
-
-fn validate_command_spec(spec: &CommandSpec<'_>) -> Result<(), String> {
-    let cwd = Path::new(spec.cwd);
-    if !cwd.is_absolute() || spec.cwd.contains("..") {
-        return Err(format!("invalid tool cwd: {}", spec.cwd));
-    }
-    if spec.program.contains("..") || spec.args.iter().any(|arg| arg.contains("..")) {
-        return Err("tool command failed path traversal validation".to_string());
+        _ => {}
     }
     Ok(())
 }
 
-fn spawn_log_reader<R>(
-    app: AppHandle,
-    run_id: String,
-    tool_id: ToolId,
-    stream: R,
-    is_error: bool,
-) where
-    R: tokio::io::AsyncRead + Unpin + Send + 'static,
-{
-    tauri::async_runtime::spawn(async move {
-        let mut lines = BufReader::new(stream).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let _ = app.emit(
-                "tool_log",
-                ToolLogPayload {
-                    run_id: run_id.clone(),
-                    tool_id,
-                    line,
-                    is_error,
-                },
-            );
-        }
-    });
+fn show_controls_window(app: &AppHandle) -> Result<(), String> {
+    let controls_window = app
+        .get_webview_window(CONTROLS_WINDOW_LABEL)
+        .ok_or_else(|| "controls window not found".to_string())?;
+
+    controls_window
+        .show()
+        .map_err(|e| format!("failed to show controls window: {e}"))?;
+    controls_window
+        .set_focus()
+        .map_err(|e| format!("failed to focus controls window: {e}"))?;
+    macos_shim::bring_settings_window_to_front(&controls_window)?;
+    Ok(())
 }
 
-fn unique_id(prefix: &str) -> String {
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or_default();
-    format!("{prefix}-{millis}")
+fn show_controls_window_at_default_position(app: &AppHandle) -> Result<(), String> {
+    let controls_window = app
+        .get_webview_window(CONTROLS_WINDOW_LABEL)
+        .ok_or_else(|| "controls window not found".to_string())?;
+    position_controls_window_top_right(app, &controls_window)?;
+    show_controls_window(app)
+}
+
+fn position_controls_window_top_right(
+    app: &AppHandle,
+    window: &WebviewWindow,
+) -> Result<(), String> {
+    let size = window
+        .inner_size()
+        .map_err(|e| format!("failed to read controls window size: {e}"))?;
+    let displays = displays_from_app(app)?;
+    let display = displays
+        .iter()
+        .find(|display| display.primary)
+        .or_else(|| displays.first());
+
+    if let Some(display) = display {
+        let x = display.full_x + display.full_width as i32 - size.width as i32 - 12;
+        let y = display.y + 8;
+        window
+            .set_position(PhysicalPosition::new(x, y))
+            .map_err(|e| format!("failed to position controls window: {e}"))?;
+    }
+    Ok(())
+}
+
+fn displays_from_app(app: &AppHandle) -> Result<Vec<DisplayInfo>, String> {
+    let all_monitors = app
+        .available_monitors()
+        .map_err(|e| format!("failed to read monitors: {e}"))?;
+    let primary = app
+        .primary_monitor()
+        .map_err(|e| format!("failed to read primary monitor: {e}"))?;
+    let primary_id = primary.as_ref().map(stable_monitor_id);
+    let localized_names = macos_shim::localized_display_names();
+
+    let mut displays = Vec::new();
+    for (index, monitor) in all_monitors.into_iter().enumerate() {
+        let id = stable_monitor_id(&monitor);
+        let is_primary = primary_id
+            .as_ref()
+            .map(|candidate| candidate == &id)
+            .unwrap_or(false);
+        let tauri_name = monitor.name().cloned();
+        let localized_name = localized_names.get(index).cloned();
+        let name = localized_name.or_else(|| tauri_name.filter(|name| !name.starts_with("Monitor #"))).unwrap_or_else(|| {
+            if is_primary {
+                "Primary Display".to_string()
+            } else {
+                format!("Display {}", index + 1)
+            }
+        });
+        let position = monitor.position();
+        let size = monitor.size();
+        let work_area = monitor.work_area();
+        displays.push(DisplayInfo {
+            id: id.clone(),
+            name,
+            x: work_area.position.x,
+            y: work_area.position.y,
+            width: work_area.size.width,
+            height: work_area.size.height,
+            full_x: position.x,
+            full_y: position.y,
+            full_width: size.width,
+            full_height: size.height,
+            scale_factor: monitor.scale_factor(),
+            primary: is_primary,
+        });
+    }
+    Ok(displays)
+}
+
+fn stable_monitor_id(monitor: &tauri::window::Monitor) -> String {
+    let name = monitor.name().cloned().unwrap_or_else(|| "unknown".to_string());
+    let position = monitor.position();
+    let size = monitor.size();
+    format!(
+        "{}::{}::{}::{}::{}",
+        name, position.x, position.y, size.width, size.height
+    )
+}
+
+fn apply_autostart(app: &AppHandle, should_enable: bool) -> Result<(), String> {
+    let autostart = app.autolaunch();
+    if should_enable {
+        autostart
+            .enable()
+            .map_err(|e| format!("failed to enable launch at login: {e}"))?;
+    } else {
+        autostart
+            .disable()
+            .map_err(|e| format!("failed to disable launch at login: {e}"))?;
+    }
+    Ok(())
+}
+
+fn emit_settings_changed(app: &AppHandle, settings: &WatermarkSettings) -> Result<(), String> {
+    app.emit("settings-changed", settings)
+        .map_err(|e| format!("failed to emit settings change event: {e}"))
 }
